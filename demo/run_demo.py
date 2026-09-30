@@ -13,7 +13,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,12 +34,22 @@ OUTPUT = Path(__file__).resolve().parent / "output" / "last_run.json"
 
 
 class Log:
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
+    """Workflow log. `stage` is a machine-readable step for the live console; `sink` receives each event."""
 
-    def __call__(self, provider: str, message: str, kind: str = "info") -> None:
-        self.events.append({"t": round(time.time(), 3), "provider": provider, "kind": kind, "message": message})
-        print(f"  [{provider}] {message}", flush=True)
+    def __init__(self, sink: Callable[[dict[str, Any]], None] | None = None, echo: bool = True) -> None:
+        self.events: list[dict[str, Any]] = []
+        self.sink = sink
+        self.echo = echo
+        self._lock = threading.Lock()
+
+    def __call__(self, provider: str, message: str, kind: str = "info", stage: str | None = None, **extra: Any) -> None:
+        event = {"t": round(time.time(), 3), "provider": provider, "kind": kind, "message": message, "stage": stage, **extra}
+        with self._lock:
+            self.events.append(event)
+        if self.echo:
+            print(f"  [{provider}] {message}", flush=True)
+        if self.sink:
+            self.sink(event)
 
 
 # ---------------------------------------------------------------- planning
@@ -85,48 +97,68 @@ def choose(planned: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def call_direct(api_url: str, body: dict[str, Any], log: Log, pid: str) -> dict[str, Any]:
-    response = httpx.post(f"{api_url}/v1/adapt", json=body, timeout=120)
+    response = httpx.post(f"{api_url}/v1/adapt", params={"debug": "true"}, json=body, timeout=120)
     response.raise_for_status()
     return response.json()
 
 
 def call_through_gateway(gateway_url: str, body: dict[str, Any], log: Log, pid: str) -> dict[str, Any]:
-    url = f"{gateway_url}/v1/adapt"
+    url = f"{gateway_url}/v1/adapt?debug=true"
     price = probe_price(url, body) or "see challenge"
-    log(pid, f"402 Payment Required ({price} per call)", "payment")
+    log(pid, f"402 Payment Required ({price} per call)", "payment", stage="challenge", price=price)
+    log(pid, "Signing and sending the sandbox payment", "payment", stage="paying")
     response = post_json_paid(
         url,
         body,
         on_retry=lambda _: log(
-            pid, "Sandbox ledger rejected a duplicate transfer; retrying payment on a fresh blockhash", "payment"
+            pid, "Sandbox ledger rejected a duplicate transfer; retrying payment on a fresh blockhash", "payment", stage="paying"
         ),
     )
-    log(pid, "Payment accepted; request forwarded to Data Plumber", "payment")
+    log(pid, "Payment accepted; request forwarded to Data Plumber", "payment", stage="paid")
     return response
 
 
-def fetch_row(provider: Provider, mode: str, args: argparse.Namespace, log: Log) -> dict[str, Any]:
+def fetch_row(
+    provider: Provider,
+    mode: str,
+    log: Log,
+    api_url: str = "http://127.0.0.1:8000",
+    gateway_url: str = "http://127.0.0.1:1402",
+) -> dict[str, Any]:
     pid = provider.id
-    log(pid, f"Calling {pid} pricing API")
+    log(pid, f"Calling {pid} pricing API", stage="calling")
     try:
         data = call_primary_api(provider)
         content_type = provider.content_type
-        log(pid, f"API returned {content_type} in {pid}'s own format")
+        log(pid, f"API returned {content_type} in {pid}'s own format", stage="fetched")
     except ProviderAPIError as exc:
-        log(pid, f"API failed: {exc}", "error")
+        log(pid, f"API failed: {exc}", "error", stage="api_down")
         data = scrape_fallback(provider)
         content_type = "text"
-        log(pid, f"Fallback scrape obtained: {data!r}", "recovery")
+        log(pid, f"Fallback scrape obtained: {data!r}", "recovery", stage="fallback", data=data)
 
     body = adapt_request(provider, content_type, data)
-    log(pid, "Calling Data Plumber /v1/adapt")
+    log(pid, "Calling Data Plumber /v1/adapt", stage="adapt_request")
     if mode == "gateway":
-        response = call_through_gateway(args.gateway_url, body, log, pid)
+        response = call_through_gateway(gateway_url, body, log, pid)
     else:
-        response = call_direct(args.api_url, body, log, pid)
+        response = call_direct(api_url, body, log, pid)
     status = "valid" if response["valid"] else "INVALID"
-    log(pid, f"Schema adapted: {status}, {len(response['warnings'])} warning(s)", "ok" if response["valid"] else "error")
+    log(
+        pid,
+        f"Schema adapted: {status}, {len(response['warnings'])} warning(s)",
+        "ok" if response["valid"] else "error",
+        stage="adapted",
+    )
     return {"provider_id": pid, "raw": data, "content_type": content_type, **response}
+
+
+def save_run(path: Path, job: dict[str, Any], mode: str, rows: list, planned: list, pick: Any, log: Log) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"job": job, "mode": mode, "rows": rows, "plan": planned, "pick": pick, "log": log.events}, indent=2),
+        encoding="utf-8",
+    )
 
 
 # ---------------------------------------------------------------- output
@@ -171,18 +203,13 @@ def main(argv: list[str] | None = None) -> int:
     log = Log()
     rows = []
     for provider in PROVIDERS:
-        rows.append(fetch_row(provider, args.mode, args, log))
+        rows.append(fetch_row(provider, args.mode, log, api_url=args.api_url, gateway_url=args.gateway_url))
     log("planner", "All five rows share one schema; workflow resumed", "ok")
 
     planned = plan(rows)
     pick = choose(planned)
     print_report(rows, planned, pick, calls=len(rows))
-
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps({"job": JOB, "mode": args.mode, "rows": rows, "plan": planned, "pick": pick, "log": log.events}, indent=2),
-        encoding="utf-8",
-    )
+    save_run(args.out, JOB, args.mode, rows, planned, pick, log)
     print(f"\nRun saved to {args.out}")
     return 0
 

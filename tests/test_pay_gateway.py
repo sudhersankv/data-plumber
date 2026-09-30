@@ -47,7 +47,9 @@ def test_forged_payment_does_not_pass_through():
 
 
 def test_health_is_free():
-    assert httpx.get(f"{GATEWAY}/v1/health", timeout=10).json() == {"status": "ok"}
+    response = httpx.get(f"{GATEWAY}/v1/health", timeout=10)
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
 
 
 @pytest.mark.skipif(PAY is None, reason="pay CLI not on PATH")

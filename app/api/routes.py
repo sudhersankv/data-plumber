@@ -34,8 +34,8 @@ def get_llm_client() -> LLMClient:
 
 
 @router.get("/v1/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, object]:
+    return {"status": "ok", "model_configured": bool(get_settings().fireworks_api_key)}
 
 
 @router.post("/v1/adapt", response_model=AdaptResponse, response_model_exclude_none=True)

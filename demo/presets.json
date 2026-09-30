@@ -1,0 +1,350 @@
+[
+  {
+    "id": "gpu-b",
+    "group": "GPU providers",
+    "title": "Provider B: whole-machine price",
+    "expect": "price_per_gpu_hour_usd = 19.92 / 8 = 2.49 via a formula; vram_gb is null because the source never states memory.",
+    "request": {
+      "source": { "content_type": "json", "data": { "instance": "8xH100 SXM", "price": "$19.92/hr", "region": "Oregon", "billing": "on-demand" } },
+      "target_schema": { "$ref_gpu_schema": true },
+      "instructions": "The provider name is B."
+    }
+  },
+  {
+    "id": "gpu-c",
+    "group": "GPU providers",
+    "title": "Provider C: API down, scraped text",
+    "expect": "Recovery case. 24.80 / 8 = 3.1 per GPU-hour, price_type starting_at, and a lower-bound warning. A planner must not treat it as a quote.",
+    "request": {
+      "source": { "content_type": "text", "data": "H100 SXM, 8x80 GB, starting at $24.80/hr, US-West" },
+      "target_schema": { "$ref_gpu_schema": true },
+      "instructions": "The provider name is C. This text was scraped from C's pricing page."
+    }
+  },
+  {
+    "id": "gpu-d",
+    "group": "GPU providers",
+    "title": "Provider D: USD per GPU-second",
+    "expect": "0.00082 x 3600 = 2.952 per GPU-hour, computed in code via SECONDS_PER_HOUR.",
+    "request": {
+      "source": { "content_type": "json", "data": { "accelerator": "NVIDIA H100 80GB", "gpus": 8, "rate": 0.00082, "unit": "USD/GPU-second", "zone": "us-west2", "billing": "on-demand" } },
+      "target_schema": { "$ref_gpu_schema": true },
+      "instructions": "The provider name is D."
+    }
+  },
+  {
+    "id": "gpu-e",
+    "group": "GPU providers",
+    "title": "Provider E: CSV row",
+    "expect": "3.1 per GPU-hour. gpu_count and price_type are not in the source; if the model guesses them they show up as rejected.",
+    "request": {
+      "source": { "content_type": "csv", "data": "provider,gpu,memory,price,location\nE,H100,80 GB,$3.10 per GPU / hour,US West" },
+      "target_schema": { "$ref_gpu_schema": true }
+    }
+  },
+  {
+    "id": "company-blurb",
+    "group": "Text to object",
+    "title": "Company profile from a blurb",
+    "expect": "employee_count 300 (approximate warning), total_funding_usd 45000000, founded_year null.",
+    "request": {
+      "source": { "content_type": "text", "data": "Nimbus Labs is a Berlin-based startup with roughly three hundred employees. It raised $45M in its Series B last year." },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "company_name": { "type": "string" },
+          "city": { "type": ["string", "null"] },
+          "employee_count": { "type": ["integer", "null"] },
+          "total_funding_usd": { "type": ["number", "null"], "description": "Funding in US dollars" },
+          "founded_year": { "type": ["integer", "null"] }
+        },
+        "required": ["company_name"]
+      }
+    }
+  },
+  {
+    "id": "job-posting",
+    "group": "Text to object",
+    "title": "Job posting",
+    "expect": "Salary 160000 to 190000, min_years_experience 5, employment_type snapped to full_time.",
+    "request": {
+      "source": { "content_type": "text", "data": "Senior Backend Engineer (Remote, US only). $160k-$190k base + equity. 5+ years Python required. Full-time." },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "remote": { "type": ["boolean", "null"] },
+          "salary_min_usd": { "type": ["number", "null"], "description": "Annual base, low end" },
+          "salary_max_usd": { "type": ["number", "null"], "description": "Annual base, high end" },
+          "min_years_experience": { "type": ["integer", "null"] },
+          "employment_type": { "type": ["string", "null"], "enum": ["full_time", "part_time", "contract", null] }
+        },
+        "required": ["title"]
+      }
+    }
+  },
+  {
+    "id": "product-from",
+    "group": "Text to object",
+    "title": "Product with a 'from' price",
+    "expect": "price_usd 1299 with a lower-bound warning, storage_gb 1000 by formula, color null.",
+    "request": {
+      "source": { "content_type": "text", "data": "UltraBook Pro 14 - from $1,299. 16GB RAM, 1TB SSD. Ships in 2-3 days." },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "product": { "type": "string" },
+          "price_usd": { "type": ["number", "null"] },
+          "ram_gb": { "type": ["integer", "null"] },
+          "storage_gb": { "type": ["integer", "null"], "description": "Storage in GB (1 TB = 1000 GB)" },
+          "color": { "type": ["string", "null"] }
+        },
+        "required": ["product"]
+      }
+    }
+  },
+  {
+    "id": "storage-tb",
+    "group": "Unit conversions",
+    "title": "Storage: per GB-month to per TB-month",
+    "expect": "price_per_tb_month_usd = 0.023 x 1000 = 23.",
+    "request": {
+      "source": { "content_type": "json", "data": { "tier": "standard", "usd_per_gb_month": 0.023, "region": "us-east-1" } },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "tier": { "type": "string" },
+          "price_per_tb_month_usd": { "type": ["number", "null"], "description": "USD per TB per month (1 TB = 1000 GB)" },
+          "region": { "type": ["string", "null"] }
+        },
+        "required": ["tier"]
+      }
+    }
+  },
+  {
+    "id": "per-minute",
+    "group": "Unit conversions",
+    "title": "API priced per minute, target per hour",
+    "expect": "price_per_hour_usd = 0.006 x 60 = 0.36.",
+    "request": {
+      "source": { "content_type": "text", "data": "Transcription API: $0.006 per audio minute, billed per second." },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "service": { "type": "string" },
+          "price_per_hour_usd": { "type": ["number", "null"], "description": "USD per hour of audio" }
+        },
+        "required": ["service"]
+      }
+    }
+  },
+  {
+    "id": "fahrenheit",
+    "group": "Unit conversions",
+    "title": "Fahrenheit to Celsius, percent to fraction",
+    "expect": "temp_c 20, humidity_fraction 0.72.",
+    "request": {
+      "source": { "content_type": "json", "data": { "station": "SFO", "temp_f": 68, "humidity": "72%" } },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "station": { "type": "string" },
+          "temp_c": { "type": ["number", "null"], "description": "Temperature in Celsius" },
+          "humidity_fraction": { "type": ["number", "null"], "description": "Humidity as a fraction between 0 and 1" }
+        },
+        "required": ["station"]
+      }
+    }
+  },
+  {
+    "id": "eur-no-rate",
+    "group": "Honesty",
+    "title": "Currency conversion with no rate",
+    "expect": "price_per_night_usd is null with a warning: no exchange rate was given. Add 'Use 1 EUR = 1.08 USD.' as instructions and it becomes 194.4.",
+    "request": {
+      "source": { "content_type": "text", "data": "Hotel Lumiere, Paris. EUR 180 per night, breakfast included." },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "hotel": { "type": "string" },
+          "price_per_night_usd": { "type": ["number", "null"], "description": "Price in US dollars" }
+        },
+        "required": ["hotel"]
+      }
+    }
+  },
+  {
+    "id": "acme-missing",
+    "group": "Honesty",
+    "title": "Fields the source does not have",
+    "expect": "ceo, stock_ticker and ipo_year are null with warnings; 'N/A' is treated as null.",
+    "request": {
+      "source": { "content_type": "json", "data": { "name": "Acme", "staff": "~240", "funding": "$12M", "hq": "SF", "ipo": "N/A" } },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "company_name": { "type": "string" },
+          "ceo": { "type": ["string", "null"] },
+          "stock_ticker": { "type": ["string", "null"] },
+          "ipo_year": { "type": ["integer", "null"] }
+        },
+        "required": ["company_name"]
+      }
+    }
+  },
+  {
+    "id": "required-missing",
+    "group": "Honesty",
+    "title": "Required field not in the source",
+    "expect": "valid: false with 'business_name: required by target_schema but not found in source'. No invented name.",
+    "request": {
+      "source": { "content_type": "text", "data": "Great coffee, friendly staff, a bit pricey." },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "business_name": { "type": "string" },
+          "rating": { "type": ["number", "null"] }
+        },
+        "required": ["business_name"]
+      }
+    }
+  },
+  {
+    "id": "label-not-stated",
+    "group": "Honesty",
+    "title": "Enum label that is not stated",
+    "expect": "availability is null: a listed price is not evidence that the item is in stock.",
+    "request": {
+      "source": { "content_type": "csv", "data": "sku,price\nA-100,$49.99" },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "sku": { "type": "string" },
+          "price_usd": { "type": ["number", "null"] },
+          "availability": { "type": ["string", "null"], "enum": ["in_stock", "backorder", "discontinued", null] }
+        },
+        "required": ["sku"]
+      }
+    }
+  },
+  {
+    "id": "csv-table",
+    "group": "CSV and arrays",
+    "title": "CSV table to an array",
+    "expect": "3 rows; salaries 142000, 98000 and null for 'n/a'. One model call per row, so about 15 s.",
+    "request": {
+      "source": { "content_type": "csv", "data": "Name,Dept,Salary,Start\nPriya Rao,Eng,\"$142,000\",2021-03-01\nTom Lee,Sales,$98k,2019-11-15\nAna Silva,Eng,n/a,2023-06-20" },
+      "target_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "full_name": { "type": "string" },
+            "department": { "type": ["string", "null"], "description": "Full department name, e.g. Engineering" },
+            "annual_salary_usd": { "type": ["number", "null"] },
+            "start_year": { "type": ["integer", "null"] }
+          },
+          "required": ["full_name"]
+        }
+      }
+    }
+  },
+  {
+    "id": "csv-headerless",
+    "group": "CSV and arrays",
+    "title": "CSV row without a header",
+    "expect": "Columns arrive as col_1..col_4; the model maps them by content.",
+    "request": {
+      "source": { "content_type": "csv", "data": "Lisbon,PT,545000,Europe/Lisbon" },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "city": { "type": "string" },
+          "country_code": { "type": ["string", "null"] },
+          "population": { "type": ["integer", "null"] },
+          "timezone": { "type": ["string", "null"] }
+        },
+        "required": ["city"]
+      }
+    }
+  },
+  {
+    "id": "flights",
+    "group": "CSV and arrays",
+    "title": "Flight offers to an array",
+    "expect": "stops 0 and 1; duration_minutes 340 and 485 by formula.",
+    "request": {
+      "source": {
+        "content_type": "json",
+        "data": [
+          { "airline": "SkyJet", "fare": "USD 412", "stops": "nonstop", "dur": "5h 40m" },
+          { "airline": "BlueAir", "fare": "USD 298", "stops": "1 stop (DEN)", "dur": "8h 05m" }
+        ]
+      },
+      "target_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "airline": { "type": "string" },
+            "price_usd": { "type": ["number", "null"] },
+            "stops": { "type": ["integer", "null"], "description": "Number of stops; nonstop = 0" },
+            "duration_minutes": { "type": ["integer", "null"] }
+          },
+          "required": ["airline"]
+        }
+      }
+    }
+  },
+  {
+    "id": "weather-recovery",
+    "group": "Recovery",
+    "title": "Weather API failed, cached snippet",
+    "expect": "The error text is ignored. temp_c about 5, wind_kph about 28.96, rain_probability 0.6.",
+    "request": {
+      "source": { "content_type": "text", "data": "Error 503 from api.weatherco.com. Cached page snippet: 'Chicago - Currently 41F, wind NW 18 mph, chance of rain 60%.'" },
+      "target_schema": {
+        "type": "object",
+        "properties": {
+          "city": { "type": "string" },
+          "temp_c": { "type": ["number", "null"] },
+          "wind_kph": { "type": ["number", "null"], "description": "1 mph = 1.609 kph" },
+          "rain_probability": { "type": ["number", "null"], "description": "0 to 1" }
+        },
+        "required": ["city"]
+      }
+    }
+  },
+  {
+    "id": "bad-content-type",
+    "group": "Bad input",
+    "title": "Unknown content type",
+    "expect": "422 before any model call.",
+    "raw": true,
+    "request": { "source": { "content_type": "xml", "data": "<a>1</a>" }, "target_schema": { "type": "object", "properties": { "a": { "type": "integer" } } } }
+  },
+  {
+    "id": "bad-json",
+    "group": "Bad input",
+    "title": "Broken JSON string",
+    "expect": "422: source is not valid JSON.",
+    "raw": true,
+    "request": { "source": { "content_type": "json", "data": "{not json" }, "target_schema": { "type": "object", "properties": { "a": { "type": "integer" } } } }
+  },
+  {
+    "id": "bad-schema",
+    "group": "Bad input",
+    "title": "Target schema is not an object",
+    "expect": "422: target_schema must describe an object or an array of objects.",
+    "raw": true,
+    "request": { "source": { "content_type": "text", "data": "hello" }, "target_schema": { "type": "string" } }
+  },
+  {
+    "id": "bad-extra-field",
+    "group": "Bad input",
+    "title": "Unknown field on source",
+    "expect": "422: extra fields are forbidden.",
+    "raw": true,
+    "request": { "source": { "content_type": "text", "data": "hello", "foo": 1 }, "target_schema": { "type": "object", "properties": { "a": { "type": "string" } } } }
+  }
+]

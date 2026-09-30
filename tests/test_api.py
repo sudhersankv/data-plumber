@@ -25,7 +25,9 @@ def client_with(request):
 
 def test_health(client_with):
     client, _ = client_with()
-    assert client.get("/v1/health").json() == {"status": "ok"}
+    body = client.get("/v1/health").json()
+    assert body["status"] == "ok"
+    assert isinstance(body["model_configured"], bool)
 
 
 def test_adapt_returns_public_contract(client_with):

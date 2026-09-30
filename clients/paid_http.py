@@ -55,6 +55,19 @@ def post_json_paid(
     sandbox: bool = True,
     on_retry: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
+    status, text = post_paid(url, body, sandbox=sandbox, on_retry=on_retry)
+    if status != 200:
+        raise PaidCallError(f"paid call returned HTTP {status}: {text[:300]}")
+    return json.loads(text)
+
+
+def post_paid(
+    url: str,
+    body: dict[str, Any],
+    sandbox: bool = True,
+    on_retry: Callable[[int], None] | None = None,
+) -> tuple[int, str]:
+    """Pay for and send one request. Returns the HTTP status and body of the paid response."""
     pay = shutil.which("pay")
     if not pay:
         raise PaidCallError("the `pay` CLI is not on PATH")
@@ -73,10 +86,11 @@ def post_json_paid(
             result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=180)
             out = result.stdout.rstrip()
             body_text, _, status = out.rpartition(STATUS_MARKER)
-            if result.returncode == 0 and status == "200":
-                return json.loads(body_text)
             detail = result.stderr.strip() or out[:300]
-            if "already been processed" not in out + detail or attempt == PAYMENT_ATTEMPTS:
+            duplicate = "already been processed" in out + detail
+            if result.returncode == 0 and status.isdigit() and not duplicate:
+                return int(status), body_text
+            if not duplicate or attempt == PAYMENT_ATTEMPTS:
                 raise PaidCallError(f"paid call failed (exit {result.returncode}, status {status!r}): {detail}")
             if on_retry:
                 on_retry(attempt)

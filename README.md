@@ -8,7 +8,7 @@ POST /v1/adapt    { source, target_schema, instructions? }  ->  { data, valid, w
 
 Agents call it through [Pay.sh](https://pay.sh): unpaid requests get `402 Payment Required`, the agent's `pay` client settles **$0.02** in stablecoin, and the request goes through. No accounts, no API keys for the caller.
 
-![Planner demo dashboard](ui/screenshot.png)
+![Live console: planner](ui/console-planner.png)
 
 ## Why
 
@@ -98,7 +98,7 @@ copy .env.example .env                 # then fill in FIREWORKS_API_KEY
 ## Tests
 
 ```powershell
-pytest                                   # 102 unit/integration tests, mocked model, no network
+pytest                                   # 109 unit/integration tests, mocked model, no network
 ruff check . ; ruff format --check .
 pytest -m live                           # real Fireworks calls (needs FIREWORKS_API_KEY)
 $env:DP_GATEWAY_URL="http://127.0.0.1:1402"; pytest -m gateway   # 402/200 acceptance, gateway must be running
@@ -174,11 +174,23 @@ Data Plumber calls: 5 x $0.02 = $0.10
 
 The planner does the job math (`price_per_gpu_hour_usd x 8 x 6`) on validated rows only and excludes floors. For E, the model tried to fill `gpu_count = 1` and `price_type = on_demand`; neither is in the source, so both were dropped to `null` with warnings.
 
-Every run is saved to `demo/output/last_run.json`. To replay it in the dashboard:
+Every run is saved to `demo/output/last_run.json`.
+
+## Live console (demo and manual testing)
 
 ```powershell
-python -m http.server 8765 --bind 127.0.0.1     # from the repo root, then open http://127.0.0.1:8765/ui/
+uvicorn app.main:app --host 127.0.0.1 --port 8000     # terminal 1: the API
+python -m demo.console                                # terminal 2: then open http://127.0.0.1:8700
 ```
+
+The console plays the agent: it pays through the Pay.sh gateway with `pay --sandbox curl` (or calls the API directly) and streams every step to the page. The header shows API, gateway, Fireworks, and `pay` CLI status. If the gateway is down, its **start** button launches `pay --sandbox gate` on localhost. A mode switch toggles **Paid · Pay.sh sandbox** and **Direct · no payment**, and a counter tracks sandbox spend.
+
+- **Live planner.** Runs the five-provider job live: the flow strip shows each 402 → pay → Data Plumber → Fireworks round trip, provider cards turn from raw payload into normalized fields, the table re-sorts by job cost, and the plan card picks the winner. Toggle **Simulate outage** on any provider to show recovery from its fallback text, and change GPUs or hours to re-cost without new calls. **Replay last run** plays back the saved run, which works without the network.
+- **Playground.** 22 presets (GPU providers, text to object, unit conversions, honesty tests, CSV and arrays, recovery, bad input), each with a note on what to expect. Edit source, schema, and instructions, or the raw request body. The response shows the paid timeline, `valid`, warnings, and a per-field trace (source evidence, formula, and status), with rejected model values and their reasons in red.
+
+Keyboard: `Ctrl+Enter` runs the planner or sends the playground request, and `Alt+1` / `Alt+2` switch tabs.
+
+![Playground](ui/console-playground.png)
 
 ## MCP wrapper (optional)
 
