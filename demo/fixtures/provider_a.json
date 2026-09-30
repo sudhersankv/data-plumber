@@ -1,0 +1,8 @@
+{
+  "gpu_name": "H100 SXM",
+  "count": 8,
+  "memory": "80GB",
+  "usd_per_gpu_hour": 2.49,
+  "loc": "us-west-1",
+  "pricing": "on-demand"
+}

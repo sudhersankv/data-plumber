@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GpuOffer",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "description": "Provider name"
+    },
+    "gpu": {
+      "type": "string",
+      "description": "GPU model, as named by the source"
+    },
+    "gpu_count": {
+      "type": ["integer", "null"],
+      "description": "Number of GPUs represented by the source offer (e.g. 8 for an 8x machine)"
+    },
+    "vram_gb": {
+      "type": ["number", "null"],
+      "description": "VRAM per GPU in GB (not the machine total)"
+    },
+    "price_per_gpu_hour_usd": {
+      "type": ["number", "null"],
+      "description": "Normalized USD price for one GPU for one hour. If the source prices a whole multi-GPU machine, divide by its GPU count. Convert per-second or per-minute rates to per hour."
+    },
+    "region": {
+      "type": ["string", "null"],
+      "description": "Region or location exactly as the source states it"
+    },
+    "price_type": {
+      "type": ["string", "null"],
+      "enum": ["on_demand", "starting_at", "estimated", null],
+      "description": "on_demand (a listed or quoted on-demand price), starting_at (a 'starting at' / 'from' floor), estimated. Null if the source does not say."
+    }
+  },
+  "required": ["provider", "gpu"]
+}

@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://pay.sh/docs-assets/provider.schema.json
+#
+# Pay.sh gateway for Data Plumber.
+# The gateway is the only place payment happens: it answers unpaid requests with
+# 402 Payment Required, verifies the stablecoin payment, then forwards the request to
+# the Data Plumber API, which knows nothing about payments.
+#
+#   pay --sandbox gate api pay/paywall.yml --bind 127.0.0.1:1402
+#
+name: data-plumber
+subdomain: data-plumber
+title: "Data Plumber"
+description: "Adapts arbitrary upstream payloads (JSON, CSV, text) into the exact JSON Schema the next step of an agent workflow expects, with validation and warnings."
+category: devtools
+version: v1
+
+routing:
+  type: proxy
+  url: http://127.0.0.1:8000/
+
+endpoints:
+  - method: GET
+    path: "v1/health"
+    description: "Health check (free)."
+
+  # Our service price: $0.02 per /v1/adapt call.
+  - method: POST
+    path: "v1/adapt"
+    description: "Adapt one source payload into target_schema. Returns data, valid, warnings."
+    metering:
+      dimensions:
+        - direction: usage
+          unit: requests
+          scale: 1
+          tiers:
+            - price_usd: 0.02

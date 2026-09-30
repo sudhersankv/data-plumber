@@ -1,0 +1,17 @@
+{
+  "source": {
+    "content_type": "json",
+    "data": { "name": "Acme", "staff": "~240", "funding": "$12M", "hq": "SF", "ipo": "N/A" }
+  },
+  "target_schema": {
+    "type": "object",
+    "properties": {
+      "company_name": { "type": "string" },
+      "employee_count": { "type": ["integer", "null"] },
+      "funding_usd": { "type": ["number", "null"], "description": "Total funding in US dollars" },
+      "city": { "type": ["string", "null"], "description": "Headquarters city, full name" },
+      "ipo_year": { "type": ["integer", "null"] }
+    },
+    "required": ["company_name"]
+  }
+}

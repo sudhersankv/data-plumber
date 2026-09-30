@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Data Plumber — demo run</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #262d36; --text: #e6edf3; --muted: #8b949e;
+    --blue: #58a6ff; --green: #3fb950; --amber: #d29922; --red: #f85149; --violet: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 16px; padding: 18px 24px 8px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header .task { color: var(--muted); }
+  header button { margin-left: auto; background: var(--blue); color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; font-weight: 600; cursor: pointer; }
+  main { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 14px; padding: 10px 24px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-height: 360px; }
+  h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; margin-bottom: 8px; opacity: .35; transition: opacity .3s, border-color .3s; }
+  .card.on { opacity: 1; }
+  .card.active { border-color: var(--blue); }
+  .card .head { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 4px; }
+  .tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .tag.recovery { color: var(--amber); border-color: var(--amber); }
+  .tag.ok { color: var(--green); border-color: var(--green); }
+  .tag.bad { color: var(--red); border-color: var(--red); }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: #c9d1d9; }
+  .steps { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+  .steps li { padding: 2px 0; color: var(--muted); }
+  .steps li.payment { color: var(--violet); }
+  .steps li.recovery { color: var(--amber); }
+  .steps li.error { color: var(--red); }
+  .steps li.ok { color: var(--green); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.row { opacity: .25; transition: opacity .3s; }
+  tr.row.on { opacity: 1; }
+  tr.pick td { color: var(--green); font-weight: 600; }
+  tr.excluded td { color: var(--muted); text-decoration: line-through; }
+  .warn { color: var(--amber); font-size: 11.5px; margin-top: 3px; }
+  .plan { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #0f2a17; border: 1px solid #1f6f35; display: none; }
+  .plan.on { display: block; }
+  footer { margin: 4px 24px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  #log { max-height: 190px; overflow: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; }
+  #log div { color: var(--muted); }
+  #log .payment { color: var(--violet); } #log .recovery { color: var(--amber); } #log .error { color: var(--red); } #log .ok { color: var(--green); }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Data Plumber</h1>
+  <span class="task" id="task">Loading demo run…</span>
+  <button id="replay">Replay</button>
+</header>
+<main>
+  <section><h2>Raw provider payloads</h2><div id="raw"></div></section>
+  <section><h2>Data Plumber · /v1/adapt via Pay.sh</h2><div id="proc"></div></section>
+  <section>
+    <h2>Normalized rows · GpuOffer schema</h2>
+    <table>
+      <thead><tr><th>provider</th><th>gpu</th><th>region</th><th class="num">$/GPU-hr</th><th class="num">6h × 8 GPUs</th><th>status</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="plan" id="plan"></div>
+  </section>
+</main>
+<footer><h2>Workflow log</h2><div id="log"></div></footer>
+
+<script>
+const RUN_URL = "../demo/output/last_run.json";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+const money = (v) => (v == null ? "–" : "$" + v.toFixed(2));
+let run = null, timers = [];
+
+function render() {
+  const ids = run.rows.map((r) => r.provider_id);
+  $("task").textContent = `Task: compare ${ids.length} GPU providers for ${run.job.description}. Mode: ${run.mode}.`;
+
+  $("raw").innerHTML = run.rows.map((r) => {
+    const recovered = run.log.some((e) => e.provider === r.provider_id && e.kind === "recovery");
+    const raw = typeof r.raw === "string" ? r.raw : JSON.stringify(r.raw, null, 1);
+    return `<div class="card" id="raw-${r.provider_id}">
+      <div class="head"><span>${r.provider_id}</span>
+      <span class="tag ${recovered ? "recovery" : ""}">${recovered ? "API down · fallback scrape" : r.content_type}</span></div>
+      <pre>${esc(raw)}</pre></div>`;
+  }).join("");
+
+  $("proc").innerHTML = run.rows.map((r) => `<div class="card" id="proc-${r.provider_id}">
+      <div class="head"><span>${r.provider_id}</span>
+      <span class="tag ${r.valid ? "ok" : "bad"}" id="res-${r.provider_id}" style="visibility:hidden">${r.valid ? "valid" : "invalid"}</span></div>
+      <ul class="steps" id="steps-${r.provider_id}"></ul></div>`).join("");
+
+  const byProvider = Object.fromEntries(run.plan.map((p) => [p.provider, p]));
+  $("rows").innerHTML = run.rows.map((r) => {
+    const d = r.data || {}, p = byProvider[d.provider] || {};
+    const isPick = run.pick && run.pick.provider === d.provider;
+    const cls = ["row", isPick ? "pick" : "", p.eligible === false ? "excluded" : ""].join(" ");
+    const warn = r.warnings.filter((w) => !w.startsWith("model note")).map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join("");
+    return `<tr class="${cls}" id="row-${r.provider_id}">
+      <td>${esc(d.provider)}</td><td>${esc(d.gpu)}</td><td>${esc(d.region)}</td>
+      <td class="num">${d.price_per_gpu_hour_usd ?? "–"}</td><td class="num">${money(p.job_cost_usd)}</td>
+      <td>${esc(p.status)}${warn}</td></tr>`;
+  }).join("");
+
+  const pick = run.pick;
+  $("plan").innerHTML = pick
+    ? `<b>Plan:</b> deploy on <b>${esc(pick.provider)}</b> (${esc(pick.gpu)}, ${esc(pick.region)}) for <b>${money(pick.job_cost_usd)}</b>.
+       <span style="color:var(--muted)">Data Plumber: ${run.rows.length} calls × $0.02 = $${(run.rows.length * 0.02).toFixed(2)}</span>`
+    : "<b>Plan:</b> no eligible provider.";
+}
+
+function reset() {
+  timers.forEach(clearTimeout); timers = [];
+  document.querySelectorAll(".card, tr.row, .plan").forEach((el) => el.classList.remove("on", "active"));
+  document.querySelectorAll("[id^=steps-]").forEach((el) => (el.innerHTML = ""));
+  document.querySelectorAll("[id^=res-]").forEach((el) => (el.style.visibility = "hidden"));
+  $("log").innerHTML = "";
+}
+
+function play() {
+  reset();
+  run.log.forEach((event, i) => {
+    timers.push(setTimeout(() => {
+      const pid = event.provider;
+      const line = document.createElement("div");
+      line.className = event.kind;
+      line.textContent = `[${pid}] ${event.message}`;
+      $("log").appendChild(line); $("log").scrollTop = $("log").scrollHeight;
+      document.querySelectorAll(".card.active").forEach((el) => el.classList.remove("active"));
+      if (pid === "planner") { $("plan").classList.add("on"); return; }
+      $(`raw-${pid}`)?.classList.add("on", "active");
+      $(`proc-${pid}`)?.classList.add("on", "active");
+      const step = document.createElement("li");
+      step.className = event.kind; step.textContent = event.message;
+      $(`steps-${pid}`)?.appendChild(step);
+      if (event.message.startsWith("Schema adapted")) {
+        $(`res-${pid}`).style.visibility = "visible";
+        $(`row-${pid}`)?.classList.add("on");
+      }
+    }, i * 420));
+  });
+}
+
+fetch(RUN_URL, { cache: "no-store" })
+  .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then((data) => { run = data; render(); play(); })
+  .catch(() => {
+    $("task").textContent = "No demo run found.";
+    document.querySelector("main").innerHTML =
+      '<div class="empty" style="grid-column:1/-1">Run <code>python -m demo.run_demo</code> first, then serve the repo root with <code>python -m http.server 8765</code> and open <code>/ui/</code>.</div>';
+  });
+$("replay").onclick = () => run && play();
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+[project]
+name = "data-plumber"
+version = "0.1.0"
+description = "Adapt arbitrary upstream payloads into the JSON Schema the next workflow step expects."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: calls the real Fireworks API (needs FIREWORKS_API_KEY)",
+    "gateway: calls a running Pay.sh gateway (needs DP_GATEWAY_URL and the pay CLI)",
+]
+addopts = "-m 'not live and not gateway'"
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008", "E501"]

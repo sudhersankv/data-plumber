@@ -1,0 +1,8 @@
+{
+  "accelerator": "NVIDIA H100 80GB",
+  "gpus": 8,
+  "rate": 0.00082,
+  "unit": "USD/GPU-second",
+  "zone": "us-west2",
+  "billing": "on-demand"
+}
