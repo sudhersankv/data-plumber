@@ -7,3 +7,5 @@ __pycache__/
 demo/output/
 pay-demo.yaml
 ui/node_modules/
+deck/node_modules/
+deck/qa/
